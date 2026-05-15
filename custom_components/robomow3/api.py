@@ -1,20 +1,15 @@
 """Async client for the Robomow3 cloud REST API.
 
-Three backends:
+Two backends:
   1. https://myrobomow.robomow.com/api  – authentication (v2/mobile/…)
   2. AWS API Gateway                    – device commands (api/V6/…)
-  3. AWS IoT Device Shadow (REST)       – go-home command (mutual-TLS)
 
 Reverse-engineered from Robomow 3.0 APK v3.5.6.
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import ssl
-import tempfile
-from pathlib import Path
 from typing import Any
 
 import aiohttp
@@ -45,7 +40,7 @@ class RobomowClient:
         self._password: str | None = None
         self._access_token: str | None = None
 
-    # ── Public properties ────────────────────────────────────────────
+    # ── Public properties ────────────────────────────────────────────────
     @property
     def access_token(self) -> str | None:
         return self._access_token
@@ -83,7 +78,7 @@ class RobomowClient:
         self._access_token = body["AccessToken"]
         return body
 
-    # ── V6 IoT API helpers ───────────────────────────────────────────
+    # ── V6 IoT API helpers ───────────────────────────────────────────────
     def _headers(self) -> dict[str, str]:
         if not self._access_token:
             raise RobomowAuthError("Not authenticated")
@@ -131,7 +126,7 @@ class RobomowClient:
             resp.raise_for_status()
             return body
 
-    # ── Customer / device listing ────────────────────────────────────
+    # ── Customer / device listing ──────────────────────────────────────
     async def get_devices(self) -> list[dict[str, Any]]:
         url = f"{IOT_BASE_URL}/api/V6/{API_BRAND}/customer/get-devices"
         data = await self._get(url)
@@ -163,186 +158,33 @@ class RobomowClient:
     ) -> dict[str, Any]:
         return await self._post(
             self._device_url(device_id, "start-mowing"),
-            {"zone": zone},
+            {
+                "zone": zone,
+                "edge": False,
+                "duration": "0",
+                "returnToBase": False,
+            },
         )
 
     async def stop_mowing(self, device_id: str) -> dict[str, Any]:
         return await self._post(
             self._device_url(device_id, "stop-mowing"))
 
-    # ── Go-home via AWS IoT MQTT Shadow ────────────────────────────
-
-    async def get_client_certificate_pfx(
-        self, device_id: str
-    ) -> bytes:
-        """Fetch the PFX client certificate for AWS IoT mutual-TLS."""
-        url = self._device_url(device_id, "get-client-certificate-pfx")
-        async with self._s.get(url, headers=self._headers()) as resp:
-            if resp.status == 401:
-                await self.relogin()
-                async with self._s.get(
-                    url, headers=self._headers()
-                ) as resp2:
-                    resp2.raise_for_status()
-                    return await resp2.read()
-            resp.raise_for_status()
-            return await resp.read()
-
-    def _parse_pfx(self, pfx_raw: bytes, device_id: str) -> bytes:
-        """Extract raw PFX bytes from the API response (JSON envelope)."""
-        import base64
-
-        try:
-            envelope = json.loads(pfx_raw)
-            for key in ("file", "pfx", "certificate", "data", "body"):
-                if key in envelope:
-                    return base64.b64decode(envelope[key])
-            return base64.b64decode(envelope)
-        except (json.JSONDecodeError, TypeError, ValueError):
-            return pfx_raw
-
-    def _build_ssl_context(
-        self, pfx_data: bytes, device_id: str
-    ) -> ssl.SSLContext:
-        """Parse PFX and build an SSL context for mutual-TLS.
-
-        The PFX password is the device serial number.
-        """
-        from cryptography.hazmat.primitives.serialization import (
-            Encoding,
-            NoEncryption,
-            PrivateFormat,
-            pkcs12,
-        )
-
-        try:
-            private_key, certificate, chain = (
-                pkcs12.load_key_and_certificates(
-                    pfx_data, device_id.encode()
-                )
-            )
-        except Exception as err:
-            raise RobomowApiError(
-                f"Cannot parse PFX certificate: {err}"
-            ) from err
-
-        if private_key is None or certificate is None:
-            raise RobomowApiError("PFX missing key or certificate")
-
-        # Write PEM files to temp dir
-        tmp = Path(tempfile.mkdtemp(prefix="robomow_"))
-        cert_path = tmp / "cert.pem"
-        key_path = tmp / "key.pem"
-
-        cert_pem = certificate.public_bytes(Encoding.PEM)
-        if chain:
-            for ca in chain:
-                cert_pem += ca.public_bytes(Encoding.PEM)
-        cert_path.write_bytes(cert_pem)
-
-        key_path.write_bytes(
-            private_key.private_bytes(
-                Encoding.PEM,
-                PrivateFormat.TraditionalOpenSSL,
-                NoEncryption(),
-            )
-        )
-
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.load_cert_chain(str(cert_path), str(key_path))
-        ctx.load_default_certs()
-
-        # Cleanup temp files
-        cert_path.unlink(missing_ok=True)
-        key_path.unlink(missing_ok=True)
-        tmp.rmdir()
-
-        return ctx
-
-    @staticmethod
-    def _make_mqtt_client(client_id: str):
-        """Create paho MQTT client (compatible with v1 and v2 API)."""
-        import paho.mqtt.client as mqtt
-
-        try:
-            return mqtt.Client(
-                callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
-                client_id=client_id,
-            )
-        except (AttributeError, TypeError):
-            return mqtt.Client(client_id=client_id)
-
     async def send_go_home(self, device_id: str) -> None:
-        """Send 'return to base' via AWS IoT MQTT shadow update.
+        """Send the mower home (return to base).
 
-        The go-home command is not available via REST. The Robomow app
-        publishes a shadow update over MQTT (port 8883) with mutual-TLS
-        client certs.  We do the same here using paho-mqtt.
+        Uses the start-mowing REST endpoint with returnToBase=true.
+        Reverse-engineered from StartMowingRequest in Robomow 3.0 APK:
+        the same endpoint handles both mowing and return-to-base via
+        the returnToBase boolean field.
         """
-        _LOGGER.debug("Fetching PFX certificate for %s", device_id)
-        pfx_raw = await self.get_client_certificate_pfx(device_id)
-        pfx_data = self._parse_pfx(pfx_raw, device_id)
-        ssl_ctx = self._build_ssl_context(pfx_data, device_id)
-
-        shadow_topic = f"$aws/things/{device_id}/shadow/update"
-        accepted_topic = f"$aws/things/{device_id}/shadow/update/accepted"
-        rejected_topic = f"$aws/things/{device_id}/shadow/update/rejected"
-
-        payload = json.dumps({
-            "state": {"desired": {"returnToBase": True}}
-        })
-
-        result: dict[str, Any] = {"done": False, "error": None}
-
-        def on_connect(client, userdata, flags, *args):
-            rc = args[0] if args else 0
-            rc_val = int(rc) if hasattr(rc, "value") else rc
-            if rc_val != 0:
-                result["error"] = f"MQTT connect failed: rc={rc}"
-                result["done"] = True
-                return
-            _LOGGER.debug("MQTT connected to AWS IoT")
-            client.subscribe(accepted_topic)
-            client.subscribe(rejected_topic)
-            client.publish(shadow_topic, payload)
-            _LOGGER.debug("Published returnToBase to %s", shadow_topic)
-
-        def on_message(client, userdata, msg):
-            _LOGGER.debug("MQTT %s: %s", msg.topic, msg.payload[:300])
-            if "rejected" in msg.topic:
-                result["error"] = msg.payload.decode(errors="replace")[:200]
-            result["done"] = True
-            client.disconnect()
-
-        # Run the synchronous paho-mqtt client in the executor
-        def _mqtt_publish():
-            import time
-            from .const import IOT_SHADOW_HOST
-
-            # AWS IoT policy requires client_id = thing name
-            client = self._make_mqtt_client(device_id)
-            client.tls_set_context(ssl_ctx)
-            client.on_connect = on_connect
-            client.on_message = on_message
-
-            client.connect(IOT_SHADOW_HOST, 8883, keepalive=30)
-
-            deadline = time.time() + 15
-            while not result["done"] and time.time() < deadline:
-                client.loop(timeout=0.5)
-
-            if not result["done"]:
-                result["error"] = "MQTT shadow update timed out"
-                try:
-                    client.disconnect()
-                except Exception:
-                    pass
-
-        import asyncio
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, _mqtt_publish)
-
-        if result.get("error"):
-            raise RobomowApiError(
-                f"Go-home failed: {result['error']}"
-            )
+        _LOGGER.info("Sending return-to-base for %s", device_id)
+        await self._post(
+            self._device_url(device_id, "start-mowing"),
+            {
+                "zone": 0,
+                "edge": False,
+                "duration": "0",
+                "returnToBase": True,
+            },
+        )

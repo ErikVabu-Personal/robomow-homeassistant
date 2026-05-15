@@ -73,7 +73,7 @@ class RobomowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "connection": self._conn_data or {},
         }
 
-    # ── Convenience accessors ────────────────────────────────────────
+    # ── Convenience accessors ──────────────────────────────────────────
 
     def _dash(self) -> dict[str, Any]:
         return (self.data or {}).get("dashboard") or {}
@@ -187,15 +187,10 @@ class RobomowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_request_refresh()
 
     async def async_go_home(self) -> None:
-        """Send the mower home.
+        """Send the mower home (return to base).
 
-        NOTE: The go-home command requires MQTT shadow updates whose auth
-        mechanism is still being reverse-engineered.  For now we fall back
-        to stop_mowing so the dock button doesn't crash HA.
+        Uses the start-mowing endpoint with returnToBase=true,
+        as discovered from the Robomow APK's StartMowingRequest model.
         """
-        _LOGGER.warning(
-            "Go-home (return to base) is not yet implemented — "
-            "sending stop-mowing instead.  The mower will stop in place."
-        )
-        await self.api.stop_mowing(self.serial)
+        await self.api.send_go_home(self.serial)
         await self.async_request_refresh()

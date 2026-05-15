@@ -3,8 +3,8 @@
   "name": "Robomow3",
   "codeowners": ["@ErikVabu-Personal"],
   "config_flow": true,
-  "documentation": "https://github.com/ErikVabu-Personal/robomow-homeassistant",
+  "documentation": "https://github.com/ErikVabu-Personal/robomow3-homeassistant",
   "iot_class": "cloud_polling",
-  "requirements": ["aiohttp>=3.8.0", "cryptography>=41.0.0", "paho-mqtt>=1.6.0"],
+  "requirements": ["aiohttp>=3.8.0"],
   "version": "0.1.0"
 }
