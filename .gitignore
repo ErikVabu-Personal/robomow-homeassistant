@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+credentials.json
+*.zip
+*.xapk
+
+# Diagnostic script outputs
+scripts/*.json
+scripts/*.log
+
+# APK decompilation
+*.apk
+jadx_output/

@@ -1,0 +1,39 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Robomow Login",
+        "description": "Sign in with your Robomow3 app credentials.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      },
+      "pick_device": {
+        "title": "Select mower",
+        "data": {
+          "device": "Mower"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid email or password",
+      "cannot_connect": "Cannot connect to Robomow cloud",
+      "no_devices": "No mowers found on this account"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "mower_state": { "name": "State" },
+      "battery_percent": { "name": "Battery" },
+      "battery_state": { "name": "Battery state" },
+      "wifi_rssi": { "name": "WiFi signal" },
+      "wifi_network": { "name": "WiFi network" },
+      "next_operation": { "name": "Next mowing" },
+      "mow_time": { "name": "Mow time" },
+      "mow_debt": { "name": "Mow debt" },
+      "device_last_seen": { "name": "Last seen" },
+      "firmware": { "name": "Firmware" }
+    }
+  }
+}
