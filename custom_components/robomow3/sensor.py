@@ -26,7 +26,9 @@ class RobomowSensorDescription(SensorEntityDescription):
     value_fn: Callable[[RobomowCoordinator], float | int | str | None]
 
 
-_DESCRIPTIONS: tuple[RobomowSensorDescription, ...] = (
+# ── Core sensors ──────────────────────────────────────────────────────
+
+_CORE_SENSORS: tuple[RobomowSensorDescription, ...] = (
     RobomowSensorDescription(
         key="state",
         translation_key="mower_state",
@@ -50,6 +52,11 @@ _DESCRIPTIONS: tuple[RobomowSensorDescription, ...] = (
         icon="mdi:battery",
         value_fn=lambda c: c.get_battery_state(),
     ),
+)
+
+# ── WiFi sensors ──────────────────────────────────────────────────────
+
+_WIFI_SENSORS: tuple[RobomowSensorDescription, ...] = (
     RobomowSensorDescription(
         key="wifi_rssi",
         translation_key="wifi_rssi",
@@ -68,13 +75,69 @@ _DESCRIPTIONS: tuple[RobomowSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda c: c.get_wifi_network(),
     ),
+)
+
+# ── Operation sensors ─────────────────────────────────────────────────
+
+_OPERATION_SENSORS: tuple[RobomowSensorDescription, ...] = (
     RobomowSensorDescription(
-        key="next_operation",
-        translation_key="next_operation",
+        key="next_mowing",
+        translation_key="next_mowing",
         name="Next mowing",
         icon="mdi:calendar-clock",
-        value_fn=lambda c: c.get_next_operation().get("startOperationDate"),
+        value_fn=lambda c: c.get_next_op_start(),
     ),
+    RobomowSensorDescription(
+        key="current_op_start",
+        translation_key="current_op_start",
+        name="Current operation start",
+        icon="mdi:clock-start",
+        value_fn=lambda c: c.get_current_op_start(),
+    ),
+    RobomowSensorDescription(
+        key="current_op_duration",
+        translation_key="current_op_duration",
+        name="Current operation duration",
+        icon="mdi:timer-outline",
+        value_fn=lambda c: c.get_current_op_duration(),
+    ),
+    RobomowSensorDescription(
+        key="prev_op_start",
+        translation_key="prev_op_start",
+        name="Previous operation start",
+        icon="mdi:clock-start",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda c: c.get_prev_op_start(),
+    ),
+    RobomowSensorDescription(
+        key="prev_op_end",
+        translation_key="prev_op_end",
+        name="Previous operation end",
+        icon="mdi:clock-end",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda c: c.get_prev_op_end(),
+    ),
+    RobomowSensorDescription(
+        key="prev_op_duration",
+        translation_key="prev_op_duration",
+        name="Previous operation duration",
+        icon="mdi:timer-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda c: c.get_prev_op_duration(),
+    ),
+    RobomowSensorDescription(
+        key="prev_op_mowing_duration",
+        translation_key="prev_op_mowing_duration",
+        name="Previous mowing duration",
+        icon="mdi:timer-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda c: c.get_prev_op_mowing_duration(),
+    ),
+)
+
+# ── Zone sensors ──────────────────────────────────────────────────────
+
+_ZONE_SENSORS: tuple[RobomowSensorDescription, ...] = (
     RobomowSensorDescription(
         key="mow_time",
         translation_key="mow_time",
@@ -90,6 +153,65 @@ _DESCRIPTIONS: tuple[RobomowSensorDescription, ...] = (
         value_fn=lambda c: c.get_main_zone_debt(),
     ),
     RobomowSensorDescription(
+        key="mow_time_required",
+        translation_key="mow_time_required",
+        name="Mow time required",
+        icon="mdi:timer-sand",
+        value_fn=lambda c: c.get_main_zone_mowing_time_required(),
+    ),
+)
+
+# ── Settings sensors ──────────────────────────────────────────────────
+
+_SETTINGS_SENSORS: tuple[RobomowSensorDescription, ...] = (
+    RobomowSensorDescription(
+        key="edge_mode",
+        translation_key="edge_mode",
+        name="Edge mode",
+        icon="mdi:border-outside",
+        value_fn=lambda c: "on" if c.get_edge_mode() else "off"
+        if c.get_edge_mode() is not None else None,
+    ),
+    RobomowSensorDescription(
+        key="child_lock",
+        translation_key="child_lock",
+        name="Child lock",
+        icon="mdi:lock-outline",
+        value_fn=lambda c: "on" if c.get_child_lock() else "off"
+        if c.get_child_lock() is not None else None,
+    ),
+    RobomowSensorDescription(
+        key="anti_theft",
+        translation_key="anti_theft",
+        name="Anti-theft",
+        icon="mdi:shield-lock-outline",
+        value_fn=lambda c: "on" if c.get_anti_theft_enabled() else "off"
+        if c.get_anti_theft_enabled() is not None else None,
+    ),
+    RobomowSensorDescription(
+        key="eco_mode",
+        translation_key="eco_mode",
+        name="Eco mode",
+        icon="mdi:leaf",
+        value_fn=lambda c: "active" if c.get_eco_mode_active()
+        else ("on" if c.get_eco_mode() else "off")
+        if c.get_eco_mode() is not None else None,
+    ),
+    RobomowSensorDescription(
+        key="audio",
+        translation_key="audio",
+        name="Audio",
+        icon="mdi:volume-high",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda c: "on" if c.get_audio_on() else "off"
+        if c.get_audio_on() is not None else None,
+    ),
+)
+
+# ── Diagnostic / connection sensors ───────────────────────────────────
+
+_DIAGNOSTIC_SENSORS: tuple[RobomowSensorDescription, ...] = (
+    RobomowSensorDescription(
         key="device_last_seen",
         translation_key="device_last_seen",
         name="Last seen",
@@ -104,6 +226,57 @@ _DESCRIPTIONS: tuple[RobomowSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda c: c.get_firmware(),
     ),
+    RobomowSensorDescription(
+        key="firmware_full",
+        translation_key="firmware_full",
+        name="Firmware (detailed)",
+        icon="mdi:chip",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda c: c.get_firmware_full(),
+    ),
+    RobomowSensorDescription(
+        key="hardware_version",
+        translation_key="hardware_version",
+        name="Hardware version",
+        icon="mdi:memory",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda c: c.get_hardware_version(),
+    ),
+    RobomowSensorDescription(
+        key="platform",
+        translation_key="platform",
+        name="Platform",
+        icon="mdi:information-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda c: c.get_platform(),
+    ),
+    RobomowSensorDescription(
+        key="platform_type",
+        translation_key="platform_type",
+        name="Platform type",
+        icon="mdi:information-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda c: c.get_platform_type(),
+    ),
+    RobomowSensorDescription(
+        key="system_failure",
+        translation_key="system_failure",
+        name="System failure code",
+        icon="mdi:alert-circle-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda c: c.get_system_failure_id(),
+    ),
+)
+
+# ── All sensor descriptions combined ──────────────────────────────────
+
+_DESCRIPTIONS: tuple[RobomowSensorDescription, ...] = (
+    *_CORE_SENSORS,
+    *_WIFI_SENSORS,
+    *_OPERATION_SENSORS,
+    *_ZONE_SENSORS,
+    *_SETTINGS_SENSORS,
+    *_DIAGNOSTIC_SENSORS,
 )
 
 

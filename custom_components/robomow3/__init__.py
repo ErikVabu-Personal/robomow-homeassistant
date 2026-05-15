@@ -14,7 +14,7 @@ from .coordinator import RobomowCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["lawn_mower", "sensor"]
+PLATFORMS = ["binary_sensor", "lawn_mower", "sensor"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

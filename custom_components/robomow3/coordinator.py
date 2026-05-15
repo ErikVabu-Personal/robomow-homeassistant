@@ -39,7 +39,7 @@ class RobomowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.device_info_raw = device_info_raw or {}
         self._conn_data: dict[str, Any] | None = None
 
-    # ── Polling ──────────────────────────────────────────────────────
+    # ── Polling ──────────────────────────────────────────────────────────
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
@@ -73,7 +73,7 @@ class RobomowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "connection": self._conn_data or {},
         }
 
-    # ── Convenience accessors ────────────────────────────────────────
+    # ── Convenience accessors ────────────────────────────────────────────
 
     def _dash(self) -> dict[str, Any]:
         return (self.data or {}).get("dashboard") or {}
@@ -166,17 +166,119 @@ class RobomowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return f"{sv.get('controllerMain', '?')}.{sv.get('controllerTest', '?')}"
 
     # Zone info
-    def get_main_zone_mow_time(self) -> str | None:
+    def _main_zone(self) -> dict[str, Any]:
         rz = self._dash().get("robotZones") or {}
-        mz = rz.get("mainZoneSettings") or {}
-        return mz.get("mowTime")
+        return rz.get("mainZoneSettings") or {}
+
+    def get_main_zone_mow_time(self) -> str | None:
+        return self._main_zone().get("mowTime")
 
     def get_main_zone_debt(self) -> str | None:
-        rz = self._dash().get("robotZones") or {}
-        mz = rz.get("mainZoneSettings") or {}
-        return mz.get("debt")
+        return self._main_zone().get("debt")
 
-    # ── Commands ─────────────────────────────────────────────────────
+    def get_main_zone_mowing_time_required(self) -> str | None:
+        return self._main_zone().get("mowingTimeRequired")
+
+    def get_main_zone_mow_complete(self) -> bool | None:
+        return self._main_zone().get("mowTimeComplete")
+
+    # Operations — extended details
+    def get_prev_op_start(self) -> str | None:
+        return self.get_previous_operation().get("startOperationDate")
+
+    def get_prev_op_end(self) -> str | None:
+        return self.get_previous_operation().get("endDate")
+
+    def get_prev_op_duration(self) -> str | None:
+        return self.get_previous_operation().get("operationDuration")
+
+    def get_prev_op_mowing_duration(self) -> str | None:
+        return self.get_previous_operation().get("mowingDuration")
+
+    def get_current_op_start(self) -> str | None:
+        return self.get_current_operation().get("startOperationDate")
+
+    def get_current_op_duration(self) -> str | None:
+        return self.get_current_operation().get("operationDuration")
+
+    def get_next_op_start(self) -> str | None:
+        return self.get_next_operation().get("startOperationDate")
+
+    # Settings — additional fields
+    def get_audio_on(self) -> bool | None:
+        s = self._settings().get("settings") or {}
+        return s.get("audioOn")
+
+    def get_anti_theft_enabled(self) -> bool | None:
+        s = self._settings().get("settings") or {}
+        at = s.get("antiTheft") or {}
+        return at.get("enable")
+
+    def get_eco_mode(self) -> bool | None:
+        s = self._settings().get("settings") or {}
+        eco = s.get("systemEconomicMode") or {}
+        return eco.get("enable")
+
+    def get_eco_mode_active(self) -> bool | None:
+        s = self._settings().get("settings") or {}
+        eco = s.get("systemEconomicMode") or {}
+        return eco.get("active")
+
+    def get_wifi_connection_status(self) -> int | None:
+        wi = self._settings().get("wifiInfo") or {}
+        return wi.get("connectionStatus")
+
+    # Connection — extended details
+    def get_platform_type(self) -> str | None:
+        return self._conn().get("platformType")
+
+    def get_brand(self) -> str | None:
+        return self._conn().get("brand")
+
+    def get_robot_serial(self) -> str | None:
+        return self._conn().get("robotSerialNumber")
+
+    def get_firmware_full(self) -> str | None:
+        """Full firmware string with controller, monitor, UI, BLE, and WiFi."""
+        sv = self._conn().get("deviceSoftwareVersion") or {}
+        if not sv:
+            return None
+        parts = []
+        cm = sv.get("controllerMain")
+        ct = sv.get("controllerTest")
+        if cm is not None:
+            parts.append(f"ctrl:{cm}.{ct or 0}")
+        mm = sv.get("monitorMain")
+        mt = sv.get("monitorTest")
+        if mm is not None:
+            parts.append(f"mon:{mm}.{mt or 0}")
+        um = sv.get("uiMain")
+        ut = sv.get("uiTest")
+        if um is not None:
+            parts.append(f"ui:{um}.{ut or 0}")
+        ble = sv.get("bleVersion")
+        if ble is not None:
+            parts.append(f"ble:{ble}")
+        wm = sv.get("wifiMajor")
+        wn = sv.get("wifiMinor")
+        if wm is not None:
+            parts.append(f"wifi:{wm}.{wn or 0}")
+        return " / ".join(parts) if parts else None
+
+    def get_hardware_version(self) -> int | None:
+        sv = self._conn().get("deviceSoftwareVersion") or {}
+        return sv.get("hardwareVersion")
+
+    # System failure / safety
+    def get_system_failure_id(self) -> int | None:
+        sf = self._dash().get("systemFailure") or {}
+        return sf.get("id")
+
+    def get_user_message_id(self) -> int | None:
+        um = self._dash().get("userMessage") or {}
+        return um.get("id")
+
+    # ── Commands ───────────────────────────────────────────────────────
 
     async def async_start_mowing(self, zone: int = 0) -> None:
         await self.api.start_mowing(self.serial, zone=zone)
