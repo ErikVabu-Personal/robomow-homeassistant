@@ -73,7 +73,7 @@ class RobomowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "connection": self._conn_data or {},
         }
 
-    # ── Convenience accessors ──────────────────────────────────────────
+    # ── Convenience accessors ────────────────────────────────────────
 
     def _dash(self) -> dict[str, Any]:
         return (self.data or {}).get("dashboard") or {}
@@ -92,14 +92,14 @@ class RobomowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         raw = self.get_state_raw()
         return STATE_MAP.get(raw, f"unknown ({raw})") if raw is not None else "unknown"
 
-    # Battery
+    # Battery (from dashboard → batteryInfo)
     def get_battery_percent(self) -> int | None:
-        bs = self._dash().get("batteryState") or {}
-        return bs.get("batteryChargingPercentage")
+        bi = self._dash().get("batteryInfo") or {}
+        return bi.get("percent")
 
     def get_battery_state(self) -> str | None:
-        bs = self._dash().get("batteryState") or {}
-        raw = bs.get("batteryState")
+        bi = self._dash().get("batteryInfo") or {}
+        raw = bi.get("state")
         return BATTERY_STATE_MAP.get(raw) if raw is not None else None
 
     # Operations
@@ -115,13 +115,13 @@ class RobomowCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ops = self._dash().get("operations", {})
         return ops.get("nextOperation", {})
 
-    # WiFi
+    # WiFi (lives in settings response, not dashboard)
     def get_wifi_rssi(self) -> int | None:
-        wi = self._dash().get("wifi") or {}
-        return wi.get("wifiRSSI")
+        wi = self._settings().get("wifiInfo") or {}
+        return wi.get("rssi")
 
     def get_wifi_network(self) -> str | None:
-        wi = self._dash().get("wifi") or {}
+        wi = self._settings().get("wifiInfo") or {}
         return wi.get("networkName")
 
     # Settings
