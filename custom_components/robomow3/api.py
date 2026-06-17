@@ -9,6 +9,7 @@ Reverse-engineered from Robomow 3.0 APK v3.5.6.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -40,12 +41,39 @@ class RobomowClient:
         self._password: str | None = None
         self._access_token: str | None = None
 
-    # ── Public properties ────────────────────────────────────────────────
+    # ── Public properties ────────────────────────────────────────────────────
     @property
     def access_token(self) -> str | None:
         return self._access_token
 
-    # ── Auth ─────────────────────────────────────────────────────────
+    # ── Safe JSON parsing ────────────────────────────────────────────────────
+
+    @staticmethod
+    async def _parse_json(resp: aiohttp.ClientResponse) -> dict[str, Any]:
+        """Read the response body and parse as JSON.
+
+        Reads raw text first so we never crash on non-JSON responses
+        (HTML error pages, empty bodies, redirects).  Works with both
+        plain aiohttp and HA's orjson-backed wrapper (Python 3.14+).
+        """
+        raw = await resp.text()
+        if not raw or not raw.strip():
+            raise RobomowApiError(
+                f"Empty response body (HTTP {resp.status} from {resp.url})"
+            )
+        try:
+            return json.loads(raw)
+        except (json.JSONDecodeError, ValueError) as exc:
+            # Log the first 200 chars for debugging (may be HTML).
+            _LOGGER.debug(
+                "Non-JSON response (HTTP %s): %.200s", resp.status, raw
+            )
+            raise RobomowApiError(
+                f"Invalid JSON from {resp.url} "
+                f"(HTTP {resp.status}): {raw[:200]}"
+            ) from exc
+
+    # ── Auth ───────────────────────────────────────────────────────────
     async def login(self, email: str, password: str) -> dict[str, Any]:
         """Authenticate and store the JWT for subsequent calls."""
         self._email = email
@@ -65,12 +93,24 @@ class RobomowClient:
             json=payload,
             headers={"Content-Type": "application/json"},
         ) as resp:
-            body = await resp.json(content_type=None)
+            # Check status BEFORE parsing JSON — the server may return
+            # HTML error pages or empty bodies on failure.
             if resp.status in (401, 403):
-                raise RobomowAuthError(
-                    body.get("errorMessage", f"HTTP {resp.status}"))
+                try:
+                    body = await self._parse_json(resp)
+                    msg = body.get("errorMessage", f"HTTP {resp.status}")
+                except RobomowApiError:
+                    msg = f"HTTP {resp.status}"
+                raise RobomowAuthError(msg)
+
             if resp.status != 200:
-                raise RobomowApiError(f"Login HTTP {resp.status}")
+                raw = await resp.text()
+                raise RobomowApiError(
+                    f"Login HTTP {resp.status}: {raw[:200]}"
+                )
+
+            body = await self._parse_json(resp)
+
             if not body.get("Success"):
                 raise RobomowAuthError(
                     body.get("errorMessage", "Login failed"))
@@ -78,7 +118,7 @@ class RobomowClient:
         self._access_token = body["AccessToken"]
         return body
 
-    # ── V6 IoT API helpers ───────────────────────────────────────────────
+    # ── V6 IoT API helpers ───────────────────────────────────────────────────
     def _headers(self) -> dict[str, str]:
         if not self._access_token:
             raise RobomowAuthError("Not authenticated")
@@ -95,18 +135,16 @@ class RobomowClient:
 
     async def _get(self, url: str) -> dict[str, Any]:
         async with self._s.get(url, headers=self._headers()) as resp:
-            body = await resp.json(content_type=None)
             if resp.status == 401:
                 # Token may have expired – try relogin once.
                 await self.relogin()
                 async with self._s.get(
                     url, headers=self._headers()
                 ) as resp2:
-                    body = await resp2.json(content_type=None)
                     resp2.raise_for_status()
-                    return body
+                    return await self._parse_json(resp2)
             resp.raise_for_status()
-            return body
+            return await self._parse_json(resp)
 
     async def _post(
         self, url: str, payload: dict[str, Any] | None = None
@@ -114,25 +152,23 @@ class RobomowClient:
         async with self._s.post(
             url, json=payload or {}, headers=self._headers()
         ) as resp:
-            body = await resp.json(content_type=None)
             if resp.status == 401:
                 await self.relogin()
                 async with self._s.post(
                     url, json=payload or {}, headers=self._headers()
                 ) as resp2:
-                    body = await resp2.json(content_type=None)
                     resp2.raise_for_status()
-                    return body
+                    return await self._parse_json(resp2)
             resp.raise_for_status()
-            return body
+            return await self._parse_json(resp)
 
-    # ── Customer / device listing ──────────────────────────────────────
+    # ── Customer / device listing ──────────────────────────────────────────
     async def get_devices(self) -> list[dict[str, Any]]:
         url = f"{IOT_BASE_URL}/api/V6/{API_BRAND}/customer/get-devices"
         data = await self._get(url)
         return data.get("products", [])
 
-    # ── Device endpoints ─────────────────────────────────────────────
+    # ── Device endpoints ─────────────────────────────────────────────────────
     async def get_dashboard(self, device_id: str) -> dict[str, Any]:
         return await self._get(self._device_url(device_id, "get-dashboard"))
 
@@ -152,7 +188,7 @@ class RobomowClient:
     async def get_scheduler(self, device_id: str) -> dict[str, Any]:
         return await self._get(self._device_url(device_id, "get-scheduler"))
 
-    # ── Commands ─────────────────────────────────────────────────────
+    # ── Commands ───────────────────────────────────────────────────────────
     async def start_mowing(
         self, device_id: str, zone: int = 0
     ) -> dict[str, Any]:
